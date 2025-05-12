@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "ggwave": "^0.4.2"
+    "ggwave": "latest"
   },
   "devDependencies": {
     "vite": "^4.3.9"
