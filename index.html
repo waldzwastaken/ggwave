@@ -76,6 +76,7 @@
         </div>
 
         <script type="module">
+            // Fixed import - ensure we're explicitly importing from the npm package
             import * as ggwave from 'ggwave';
             
             window.AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -83,10 +84,12 @@
 
             var context = null;
             var recorder = null;
+            var mediaStream = null;
 
             // ggwave variables
             var parameters = null;
             var instance = null;
+            var ggwaveModule = null;
             
             // Set current date
             document.getElementById('current-date').innerText = new Date().toLocaleDateString();
@@ -108,48 +111,74 @@
             async function init() {
                 if (!context) {
                     context = new AudioContext({sampleRate: 48000});
-                    
-                    // Initialize ggwave
-                    const ggwaveModule = await ggwave.ggwave_factory();
-                    window.ggwaveModule = ggwaveModule;
-                    
-                    parameters = ggwaveModule.getDefaultParameters();
-                    parameters.sampleRateInp = context.sampleRate;
-                    parameters.sampleRateOut = context.sampleRate;
-                    instance = ggwaveModule.init(parameters);
-                    
-                    console.log("ggwave initialized");
                 }
+                
+                // Only initialize ggwave if it hasn't been initialized yet
+                if (!ggwaveModule) {
+                    try {
+                        // Ensure we're correctly awaiting the factory function
+                        ggwaveModule = await ggwave.ggwave_factory();
+                        window.ggwaveModule = ggwaveModule;
+                        
+                        parameters = ggwaveModule.getDefaultParameters();
+                        parameters.sampleRateInp = context.sampleRate;
+                        parameters.sampleRateOut = context.sampleRate;
+                        instance = ggwaveModule.init(parameters);
+                        
+                        console.log("ggwave initialized successfully");
+                        return true;
+                    } catch (error) {
+                        console.error("Error initializing ggwave:", error);
+                        rxData.value = 'Error initializing ggwave: ' + error.message;
+                        return false;
+                    }
+                }
+                return true;
             }
 
             // Send data over sound
             window.onSend = async function() {
-                await init();
+                // Ensure ggwave is initialized before trying to use it
+                const initialized = await init();
+                if (!initialized) {
+                    console.error("Cannot send - ggwave not initialized");
+                    return;
+                }
 
                 // Pause audio capture during transmission
                 captureStop.click();
 
-                // Generate audio waveform
-                const waveform = window.ggwaveModule.encode(
-                    instance, 
-                    txData.value, 
-                    window.ggwaveModule.ProtocolId.GGWAVE_PROTOCOL_AUDIBLE_FAST, 
-                    10
-                );
+                try {
+                    // Generate audio waveform using the properly initialized module
+                    const waveform = ggwaveModule.encode(
+                        instance, 
+                        txData.value, 
+                        ggwaveModule.ProtocolId.GGWAVE_PROTOCOL_AUDIBLE_FAST, 
+                        10
+                    );
 
-                // Play audio
-                var buf = convertTypedArray(waveform, Float32Array);
-                var buffer = context.createBuffer(1, buf.length, context.sampleRate);
-                buffer.getChannelData(0).set(buf);
-                var source = context.createBufferSource();
-                source.buffer = buffer;
-                source.connect(context.destination);
-                source.start(0);
+                    // Play audio
+                    var buf = convertTypedArray(waveform, Float32Array);
+                    var buffer = context.createBuffer(1, buf.length, context.sampleRate);
+                    buffer.getChannelData(0).set(buf);
+                    var source = context.createBufferSource();
+                    source.buffer = buffer;
+                    source.connect(context.destination);
+                    source.start(0);
+                } catch (error) {
+                    console.error("Error sending audio:", error);
+                    rxData.value = 'Error sending audio: ' + error.message;
+                }
             };
 
             // Start audio capture
             captureStart.addEventListener("click", async function() {
-                await init();
+                // Ensure ggwave is initialized before starting capture
+                const initialized = await init();
+                if (!initialized) {
+                    console.error("Cannot start capture - ggwave not initialized");
+                    return;
+                }
 
                 let constraints = {
                     audio: {
@@ -183,7 +212,7 @@
 
                     recorder.onaudioprocess = function(e) {
                         var source = e.inputBuffer;
-                        var res = window.ggwaveModule.decode(
+                        var res = ggwaveModule.decode(
                             instance, 
                             convertTypedArray(new Float32Array(source.getChannelData(0)), Int8Array)
                         );
@@ -208,7 +237,7 @@
 
             // Stop audio capture
             captureStop.addEventListener("click", function() {
-                if (recorder) {
+                if (recorder && mediaStream) {
                     recorder.disconnect(context.destination);
                     mediaStream.disconnect(recorder);
                     recorder = null;
@@ -223,7 +252,10 @@
             captureStop.click();
             
             // Automatically initialize ggwave
-            init().catch(console.error);
+            init().catch(error => {
+                console.error("Initial ggwave initialization error:", error);
+                rxData.value = 'Error initializing ggwave: ' + error.message;
+            });
         </script>
     </body>
 </html>
