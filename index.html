@@ -76,8 +76,8 @@
         </div>
 
         <script type="module">
-            // Fixed import - ensure we're explicitly importing from the npm package
-            import * as ggwave from 'ggwave';
+            // Fixed import - importing ggwave_factory directly rather than the whole module
+            import { ggwave_factory } from 'ggwave';
             
             window.AudioContext = window.AudioContext || window.webkitAudioContext;
             window.OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -116,8 +116,8 @@
                 // Only initialize ggwave if it hasn't been initialized yet
                 if (!ggwaveModule) {
                     try {
-                        // Ensure we're correctly awaiting the factory function
-                        ggwaveModule = await ggwave.ggwave_factory();
+                        // Properly call the imported ggwave_factory function
+                        ggwaveModule = await ggwave_factory();
                         window.ggwaveModule = ggwaveModule;
                         
                         parameters = ggwaveModule.getDefaultParameters();
