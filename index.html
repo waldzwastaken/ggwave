@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en-us">
+    <head>
+        <meta charset="utf-8">
+        <title>ggwave : javascript example</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+            }
+            #main-container {
+                max-width: 800px;
+                margin: 0 auto;
+            }
+            textarea {
+                resize: vertical;
+                width: 100%;
+                max-width: 500px;
+            }
+            button {
+                padding: 8px 16px;
+                margin-top: 10px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 16px;
+            }
+            button:hover {
+                background-color: #45a049;
+            }
+            .cell-version {
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 1px solid #eee;
+                font-size: 12px;
+                color: #666;
+            }
+            .nav-link {
+                color: #666;
+                text-decoration: none;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="main-container">
+            <h1>ggwave - Data Over Sound</h1>
+            <p>Minimal <b>ggwave</b> example using Javascript bindings</p>
+
+            <br>
+
+            <div>Tx Data:</div> 
+            <textarea name="textarea" id="txData" style="width:500px;height:100px;">Hello javascript</textarea><br>
+
+            <button onclick="onSend();">Send</button>
+
+            <br><br>
+
+            <div>Rx data:</div> 
+            <textarea name="textarea" id="rxData" style="width:500px;height:100px;" disabled></textarea><br>
+
+            <button id="captureStart">Start capturing</button>
+            <button id="captureStop" hidden>Stop capturing</button>
+
+            <br><br>
+
+            <div class="cell-version">
+                <span>
+                    |
+                    Created: <span class="nav-link" id="current-date"></span> |
+                    <a class="nav-link" href="https://github.com/ggerganov/ggwave" target="_blank">ggwave GitHub</a> |
+                    <a class="nav-link" href="https://github.com/ggerganov/ggwave/tree/master/examples/ggwave-js" target="_blank">ggwave-js example</a> |
+                </span>
+            </div>
+        </div>
+
+        <script type="module">
+            import * as ggwave from 'ggwave';
+            
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            window.OfflineAudioContext = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+
+            var context = null;
+            var recorder = null;
+
+            // ggwave variables
+            var parameters = null;
+            var instance = null;
+            
+            // Set current date
+            document.getElementById('current-date').innerText = new Date().toLocaleDateString();
+
+            // References to DOM elements
+            var txData = document.getElementById("txData");
+            var rxData = document.getElementById("rxData");
+            var captureStart = document.getElementById("captureStart");
+            var captureStop = document.getElementById("captureStop");
+
+            // Helper function for converting arrays
+            function convertTypedArray(src, type) {
+                var buffer = new ArrayBuffer(src.byteLength);
+                var baseView = new src.constructor(buffer).set(src);
+                return new type(buffer);
+            }
+
+            // Initialize audio context and ggwave
+            async function init() {
+                if (!context) {
+                    context = new AudioContext({sampleRate: 48000});
+                    
+                    // Initialize ggwave
+                    const ggwaveModule = await ggwave.ggwave_factory();
+                    window.ggwaveModule = ggwaveModule;
+                    
+                    parameters = ggwaveModule.getDefaultParameters();
+                    parameters.sampleRateInp = context.sampleRate;
+                    parameters.sampleRateOut = context.sampleRate;
+                    instance = ggwaveModule.init(parameters);
+                    
+                    console.log("ggwave initialized");
+                }
+            }
+
+            // Send data over sound
+            window.onSend = async function() {
+                await init();
+
+                // Pause audio capture during transmission
+                captureStop.click();
+
+                // Generate audio waveform
+                const waveform = window.ggwaveModule.encode(
+                    instance, 
+                    txData.value, 
+                    window.ggwaveModule.ProtocolId.GGWAVE_PROTOCOL_AUDIBLE_FAST, 
+                    10
+                );
+
+                // Play audio
+                var buf = convertTypedArray(waveform, Float32Array);
+                var buffer = context.createBuffer(1, buf.length, context.sampleRate);
+                buffer.getChannelData(0).set(buf);
+                var source = context.createBufferSource();
+                source.buffer = buffer;
+                source.connect(context.destination);
+                source.start(0);
+            };
+
+            // Start audio capture
+            captureStart.addEventListener("click", async function() {
+                await init();
+
+                let constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        autoGainControl: false,
+                        noiseSuppression: false
+                    }
+                };
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    mediaStream = context.createMediaStreamSource(stream);
+
+                    var bufferSize = 1024;
+                    var numberOfInputChannels = 1;
+                    var numberOfOutputChannels = 1;
+
+                    if (context.createScriptProcessor) {
+                        recorder = context.createScriptProcessor(
+                            bufferSize,
+                            numberOfInputChannels,
+                            numberOfOutputChannels
+                        );
+                    } else {
+                        recorder = context.createJavaScriptNode(
+                            bufferSize,
+                            numberOfInputChannels,
+                            numberOfOutputChannels
+                        );
+                    }
+
+                    recorder.onaudioprocess = function(e) {
+                        var source = e.inputBuffer;
+                        var res = window.ggwaveModule.decode(
+                            instance, 
+                            convertTypedArray(new Float32Array(source.getChannelData(0)), Int8Array)
+                        );
+
+                        if (res && res.length > 0) {
+                            res = new TextDecoder("utf-8").decode(res);
+                            rxData.value = res;
+                        }
+                    };
+
+                    mediaStream.connect(recorder);
+                    recorder.connect(context.destination);
+                    
+                    rxData.value = 'Listening ...';
+                    captureStart.hidden = true;
+                    captureStop.hidden = false;
+                } catch (error) {
+                    console.error("Error accessing microphone:", error);
+                    rxData.value = 'Error: ' + error.message;
+                }
+            });
+
+            // Stop audio capture
+            captureStop.addEventListener("click", function() {
+                if (recorder) {
+                    recorder.disconnect(context.destination);
+                    mediaStream.disconnect(recorder);
+                    recorder = null;
+                }
+
+                rxData.value = 'Audio capture is paused! Press the "Start capturing" button to analyze audio from the microphone';
+                captureStart.hidden = false;
+                captureStop.hidden = true;
+            });
+
+            // Initialize the UI
+            captureStop.click();
+            
+            // Automatically initialize ggwave
+            init().catch(console.error);
+        </script>
+    </body>
+</html>

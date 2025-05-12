@@ -1,0 +1,17 @@
+{
+  "name": "ggwave-web-app",
+  "version": "1.0.0",
+  "description": "Web application using ggwave for data-over-sound",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "ggwave": "^0.4.2"
+  },
+  "devDependencies": {
+    "vite": "^4.3.9"
+  }
+}
